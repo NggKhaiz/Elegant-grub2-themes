@@ -1,15 +1,20 @@
 #! /usr/bin/env bash
+# shellcheck shell=bash disable=SC2034  # install_boot/GRUB_DIR are set here and
+# consumed by core.sh (sourced below) — cross-file use is invisible to ShellCheck
 
 # Exit Immediately if a command fails
 set -o errexit
 
-readonly REPO_DIR="$(dirname "$(readlink -m "${0}")")"
+REPO_DIR="$(dirname "$(readlink -m "${0}")")"
+readonly REPO_DIR
 source "${REPO_DIR}/core.sh"
 
 usage() {
 cat << EOF
 
 Usage: $0 [OPTION]...
+
+Raven Hub — GRUB2 themes (successor of the Elegant GRUB2 themes)
 
 OPTIONS:
   -t, --theme     Background theme variant(s) [forest|mojave|mountain|wave] (default is forest)
@@ -18,9 +23,18 @@ OPTIONS:
   -c, --color     Background color variant(s) [dark|light] (default is dark)
   -s, --screen    Screen display variant(s)   [1080p|2k|4k] (default is 1080p)
   -l, --logo      Show a logo on picture      [default|system] (default: a mountain logo)
-  -r, --remove    Remove/Uninstall theme      (must add theme options, default is Elegant-forest-window-left-dark)
+  -r, --remove    Remove/Uninstall theme      (must add theme options, default is Raven-Hub-forest-window-left-dark;
+                  this also removes legacy 'Elegant-...-left-dark' installs of the same variant)
   -b, --boot      Install theme into '/boot/grub' or '/boot/grub2'
   -h, --help      Show this help
+
+Examples:
+  $0 -t mountain -s 2k          install the mountain variant for a 2560x1440 display
+  sudo $0 -b -t wave            install the wave variant into /boot/grub/themes
+  sudo $0 -r -t mountain        uninstall the mountain variant
+
+Ventoy users: this script installs into the running operating system only.
+To prepare a Ventoy USB instead, run './build-ventoy.sh --help'.
 
 EOF
 }
@@ -190,7 +204,11 @@ while [[ $# -gt 0 ]]; do
             shift
             ;;
           system)
-            logoicon="$(lsb_release -i | cut -d ' ' -f 2 | cut -d '	' -f 2)"
+            logoicon="$(detect_system_logo)"
+            if [[ -z "${logoicon}" ]]; then
+              prompt -w "Could not detect the running distribution; using the default mountain logo."
+              logoicon="Default"
+            fi
             shift
             ;;
           -*)

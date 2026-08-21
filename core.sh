@@ -1,12 +1,16 @@
+# shellcheck shell=bash
+# shellcheck disable=SC2034  # sourced library: variants, colors and state arrays
+                              # are consumed by install.sh / generate.sh
 
 readonly ROOT_UID=0
-readonly Project_Name="GRUB2_ELEGANT_THEMES"
+readonly Project_Name="RAVEN_HUB_THEMES"
 readonly MAX_DELAY=20                               # max delay for user to enter root password
 tui_root_login=
 
-THEME_NAME=Elegant
+THEME_NAME=Raven-Hub
+LEGACY_THEME_NAME=Elegant                           # themes installed by older releases of this project
 GRUB_DIR="/usr/share/grub/themes"
-REO_DIR="$(cd $(dirname $0) && pwd)"
+REO_DIR="$(cd "$(dirname "$0")" && pwd)"
 
 SCREEN_VARIANTS=('1080p' '2k' '4k')
 THEME_VARIANTS=('forest' 'mojave' 'mountain' 'wave')
@@ -42,25 +46,51 @@ b_CWAR=" \033[1;33m"                                # bold warning color
 #######################################
 
 # echo like ... with flag type and display message colors
+# The message flag is shifted off the argument list before printing so that a
+# literal "-s"/"-e"/"-w"/"-i" inside the message can never be mangled.
 prompt () {
-  case ${1} in
+  local flag="${1}"
+  shift
+  case "${flag}" in
     "-s"|"--success")
-      echo -e "${b_CGSC}${@/-s/}${CDEF}";;    # print success message
+      echo -e "${b_CGSC}${*}${CDEF}";;    # print success message
     "-e"|"--error")
-      echo -e "${b_CRER}${@/-e/}${CDEF}";;    # print error message
+      echo -e "${b_CRER}${*}${CDEF}";;    # print error message
     "-w"|"--warning")
-      echo -e "${b_CWAR}${@/-w/}${CDEF}";;    # print warning message
+      echo -e "${b_CWAR}${*}${CDEF}";;    # print warning message
     "-i"|"--info")
-      echo -e "${b_CCIN}${@/-i/}${CDEF}";;    # print info message
+      echo -e "${b_CCIN}${*}${CDEF}";;    # print info message
     *)
-    echo -e "$@"
+    echo -e "${flag}" "$@"
     ;;
   esac
 }
 
 # Check command availability
 has_command() {
-  command -v $1 &> /dev/null #with "&>", all output will be redirected.
+  command -v "$1" &> /dev/null #with "&>", all output will be redirected.
+}
+
+# Fail with an actionable message when a required source file is missing
+require_file() {
+  if [[ ! -f "${1}" && ! -d "${1}" ]]; then
+    prompt -e "ERROR: Required file '${1}' is missing from '${REO_DIR}'."
+    prompt -i "Your copy of the repository seems incomplete; re-download it and try again."
+    exit 2
+  fi
+}
+
+# Detect the running distribution for the '-l system' logo option.
+# Prints the logo asset name (e.g. 'Ubuntu'), or nothing when unknown.
+detect_system_logo() {
+  local distributor=""
+  if has_command lsb_release; then
+    distributor="$(lsb_release -i 2>/dev/null | cut -d ':' -f 2 | tr -d '\t' | tr -d ' ')"
+  fi
+  if [[ -z "${distributor}" && -f /etc/os-release ]]; then
+    distributor="$(. /etc/os-release && printf '%s' "${NAME:-}" | tr -d ' ')"
+  fi
+  printf '%s' "${distributor}"
 }
 
 copy_files() {
@@ -76,14 +106,29 @@ copy_files() {
       ;;
   esac
 
+  # Verify that every source asset exists BEFORE creating anything, so a
+  # broken repository copy fails with an actionable message and leaves no
+  # half-written theme directory behind.
+  local background_src="${REO_DIR}/backgrounds/backgrounds-${theme}/background-${theme}-${type}-${side}-${color}.jpg"
+  local config_src="${REO_DIR}/config/theme-${type}-${side}-${color}-${screen}.txt"
+  if [[ "${type}" == "blur" ]]; then
+    config_src="${REO_DIR}/config/theme-sharp-${side}-dark-${screen}.txt"
+  fi
+  require_file "${background_src}"
+  require_file "${config_src}"
+  require_file "${REO_DIR}/common/terminus-14.pf2"
+  require_file "${REO_DIR}/common/unifont-${fontsize}.pf2"
+  require_file "${REO_DIR}/assets/assets-icons-${color}/icons-${color}-${screen}"
+  require_file "${REO_DIR}/assets/assets-other/other-${screen}/Default.png"
+
   # Make a themes directory if it doesn't exist
   prompt -w "Checking themes directory ...\n"
 
-  [[ -d "${THEME_DIR}" ]] && rm -rf "${THEME_DIR}"
+  [[ -d "${THEME_DIR}" ]] && rm -rf "${THEME_DIR:?}"
   mkdir -p "${THEME_DIR}"
 
   # Copy theme
-  prompt -i "Install in ${THEME_DIR} ...\n"
+  prompt -i "Installing Raven Hub theme files in ${THEME_DIR} ...\n"
 
   # Don't preserve ownership because the owner will be root, and that causes the script to crash if it is ran from terminal by sudo
   cp -a --no-preserve=ownership "${REO_DIR}/common/terminus"*".pf2" "${THEME_DIR}"
@@ -127,6 +172,11 @@ copy_files() {
 
   # Use custom background.jpg as grub background image
   if [[ -f "${REO_DIR}/background.jpg" ]]; then
+    if ! has_command convert; then
+      prompt -e "ERROR: 'convert' (ImageMagick) is required to process the custom background.jpg."
+      prompt -i "Install ImageMagick (e.g. 'sudo apt install imagemagick', 'sudo dnf install ImageMagick', 'sudo pacman -S imagemagick') and re-run."
+      exit 2
+    fi
     prompt -w "Using custom background.jpg as grub background image...\n"
     cp -a --no-preserve=ownership "${REO_DIR}/background.jpg" "${THEME_DIR}/background.jpg"
     convert -auto-orient "${THEME_DIR}/background.jpg" "${THEME_DIR}/background.jpg"
@@ -149,7 +199,12 @@ install() {
     # Set theme
     prompt -i "Setting ${THEME_NAME}-${theme}-${type}-${side}-${color} as default...\n"
 
-    # Backup grub config
+    # Backup grub config (create a stub /etc/default/grub if this system has
+    # none yet, instead of crashing half-way through the installation)
+    if [[ ! -f /etc/default/grub ]]; then
+      prompt -w "File '/etc/default/grub' not found; creating a new one...\n"
+      printf '# Created by the Raven Hub installer\n' > /etc/default/grub
+    fi
     if [[ -f /etc/default/grub.bak ]]; then
       prompt -w "File '/etc/default/grub.bak' already exists!\n"
     else
@@ -160,7 +215,7 @@ install() {
     # This occurs when we add a theme on grub2 with Fedora.
     if has_command dnf; then
       if [[ -f "/boot/grub2/fonts/unicode.pf2" ]]; then
-        if grep "GRUB_FONT=" /etc/default/grub 2>&1 >/dev/null; then
+        if grep -q "GRUB_FONT=" /etc/default/grub ; then
           #Replace GRUB_FONT
           sed -i "s|.*GRUB_FONT=.*|GRUB_FONT=/boot/grub2/fonts/unicode.pf2|" /etc/default/grub
         else
@@ -168,7 +223,7 @@ install() {
           echo "GRUB_FONT=/boot/grub2/fonts/unicode.pf2" >> /etc/default/grub
         fi
       elif [[ -f "/boot/efi/EFI/fedora/fonts/unicode.pf2" ]]; then
-        if grep "GRUB_FONT=" /etc/default/grub 2>&1 >/dev/null; then
+        if grep -q "GRUB_FONT=" /etc/default/grub ; then
           #Replace GRUB_FONT
           sed -i "s|.*GRUB_FONT=.*|GRUB_FONT=/boot/efi/EFI/fedora/fonts/unicode.pf2|" /etc/default/grub
         else
@@ -178,7 +233,7 @@ install() {
       fi
     fi
 
-    if grep "GRUB_THEME=" /etc/default/grub 2>&1 >/dev/null; then
+    if grep -q "GRUB_THEME=" /etc/default/grub ; then
       #Replace GRUB_THEME
       sed -i "s|.*GRUB_THEME=.*|GRUB_THEME=\"${THEME_DIR}/theme.txt\"|" /etc/default/grub
     else
@@ -186,7 +241,7 @@ install() {
       echo "GRUB_THEME=\"${THEME_DIR}/theme.txt\"" >> /etc/default/grub
     fi
 
-    if grep "GRUB_BACKGROUND=" /etc/default/grub 2>&1 >/dev/null; then
+    if grep -q "GRUB_BACKGROUND=" /etc/default/grub ; then
       #Replace GRUB_BACKGROUND
       sed -i "s|.*GRUB_BACKGROUND=.*|GRUB_BACKGROUND=\"${THEME_DIR}/background.jpg\"|" /etc/default/grub
     else
@@ -205,7 +260,7 @@ install() {
       gfxmode="GRUB_GFXMODE=2560x1440,auto"
     fi
 
-    if grep "GRUB_GFXMODE=" /etc/default/grub 2>&1 >/dev/null; then
+    if grep -q "GRUB_GFXMODE=" /etc/default/grub ; then
       #Replace GRUB_GFXMODE
       sed -i "s|.*GRUB_GFXMODE=.*|${gfxmode}|" /etc/default/grub
     else
@@ -213,12 +268,12 @@ install() {
       echo "${gfxmode}" >> /etc/default/grub
     fi
 
-    if grep "GRUB_TERMINAL=console" /etc/default/grub 2>&1 >/dev/null || grep "GRUB_TERMINAL=\"console\"" /etc/default/grub 2>&1 >/dev/null; then
+    if grep -q "GRUB_TERMINAL=console" /etc/default/grub  || grep "GRUB_TERMINAL=\"console\"" /etc/default/grub ; then
       #Replace GRUB_TERMINAL
       sed -i "s|.*GRUB_TERMINAL=.*|#GRUB_TERMINAL=console|" /etc/default/grub
     fi
 
-    if grep "GRUB_TERMINAL_OUTPUT=console" /etc/default/grub 2>&1 >/dev/null || grep "GRUB_TERMINAL_OUTPUT=\"console\"" /etc/default/grub 2>&1 >/dev/null; then
+    if grep -q "GRUB_TERMINAL_OUTPUT=console" /etc/default/grub  || grep "GRUB_TERMINAL_OUTPUT=\"console\"" /etc/default/grub ; then
       #Replace GRUB_TERMINAL_OUTPUT
       sed -i "s|.*GRUB_TERMINAL_OUTPUT=.*|#GRUB_TERMINAL_OUTPUT=console|" /etc/default/grub
     fi
@@ -236,32 +291,27 @@ install() {
     prompt -w "\n * At the next restart of your computer you will see your new Grub theme\n"
 
   #Check if password is cached (if cache timestamp has not expired yet)
-  elif sudo -n true 2> /dev/null && echo; then
-    if [[ "${install_boot}" == 'true' ]]; then
-      sudo "$0" -t ${theme} -p ${type} -i ${side} -c ${color} -s ${screen} -l ${logo} -b
-    else
-      sudo "$0" -t ${theme} -p ${type} -i ${side} -c ${color} -s ${screen} -l ${logo}
-    fi
+  elif has_command sudo && sudo -n true 2> /dev/null && echo; then
+    # Re-run with the exact original arguments (preserves '-l system' and every
+    # other option instead of reconstructing them and losing the logo choice).
+    sudo "$0" "${PROG_ARGS[@]}"
   else
     #Ask for password
+    if ! has_command sudo; then
+      prompt -e "\n [ Error! ] -> This script needs root privileges and 'sudo' was not found."
+      prompt -i "Re-run this script as root (e.g. 'sudo ./install.sh ...')."
+      exit 1
+    fi
     if [[ -n ${tui_root_login} ]] ; then
       if [[ -n "${theme}" && -n "${screen}" ]]; then
-        if [[ "${install_boot}" == 'true' ]]; then
-          sudo -S $0 -t ${theme} -p ${type} -i ${side} -c ${color} -s ${screen} -l ${logo} -b <<< ${tui_root_login}
-        else
-          sudo -S $0 -t ${theme} -p ${type} -i ${side} -c ${color} -s ${screen} -l ${logo} <<< ${tui_root_login}
-        fi
+        sudo -S "$0" "${PROG_ARGS[@]}" <<< "${tui_root_login}"
       fi
     else
       prompt -e "\n [ Error! ] -> Run me as root! "
-      read -r -p " [ Trusted ] Specify the root password : " -t ${MAX_DELAY} -s
-      if sudo -S echo <<< $REPLY 2> /dev/null && echo; then
+      read -r -p " [ Trusted ] Specify the root password : " -t ${MAX_DELAY} -s || true # '-t' returns non-zero on timeout; keep errexit from aborting silently.
+      if has_command sudo && sudo -S echo <<< "$REPLY" 2> /dev/null && echo; then
         #Correct password, use with sudo's stdin
-        if [[ "${install_boot}" == 'true' ]]; then
-          sudo -S "$0" -t ${theme} -p ${type} -i ${side} -c ${color} -s ${screen} -l ${logo} -b <<< ${REPLY}
-        else
-          sudo -S "$0" -t ${theme} -p ${type} -i ${side} -c ${color} -s ${screen} -l ${logo} <<< ${REPLY}
-        fi
+        sudo -S "$0" "${PROG_ARGS[@]}" <<< "$REPLY"
       else
         #block for 3 seconds before allowing another attempt
         sleep 3
@@ -273,23 +323,23 @@ install() {
 }
 
 run_dialog() {
-  if [[ -x /usr/bin/dialog ]]; then
+  if has_command dialog; then
     if [[ "$UID" -ne "$ROOT_UID"  ]]; then
       #Check if password is cached (if cache timestamp not expired yet)
-      if sudo -n true 2> /dev/null && echo; then
+      if has_command sudo && sudo -n true 2> /dev/null && echo; then
         #No need to ask for password
-        sudo $0
+        sudo "$0"
       else
         #Ask for password
-        tui_root_login=$(dialog --backtitle ${Project_Name} \
+        tui_root_login=$(dialog --backtitle "${Project_Name}" \
         --title  "ROOT LOGIN" \
         --insecure \
         --passwordbox  "require root permission" 8 50 \
         --output-fd 1 )
 
-        if sudo -S echo <<< $tui_root_login 2> /dev/null && echo; then
+        if sudo -S echo <<< "$tui_root_login" 2> /dev/null && echo; then
           #Correct password, use with sudo's stdin
-          sudo -S "$0" <<< $tui_root_login
+          sudo -S "$0" <<< "$tui_root_login"
         else
           #block for 3 seconds before allowing another attempt
           sleep 3
@@ -301,7 +351,7 @@ run_dialog() {
       fi
     fi
 
-    tui=$(dialog --backtitle ${Project_Name} \
+    tui=$(dialog --backtitle "${Project_Name}" \
     --radiolist "Choose your Grub theme background picture : " 15 40 5 \
       1 "Forest" on \
       2 "Mojave" off \
@@ -315,7 +365,7 @@ run_dialog() {
         *) operation_canceled ;;
      esac
 
-    tui=$(dialog --backtitle ${Project_Name} \
+    tui=$(dialog --backtitle "${Project_Name}" \
     --radiolist "Choose your Grub theme style : " 15 40 5 \
       1 "Window" on \
       2 "Float" off \
@@ -329,7 +379,7 @@ run_dialog() {
         *) operation_canceled ;;
      esac
 
-    tui=$(dialog --backtitle ${Project_Name} \
+    tui=$(dialog --backtitle "${Project_Name}" \
     --radiolist "Choose your Grub theme picture side : " 15 40 5 \
       1 "Left" on \
       2 "Right" off --output-fd 1 )
@@ -339,7 +389,7 @@ run_dialog() {
         *) operation_canceled ;;
      esac
 
-    tui=$(dialog --backtitle ${Project_Name} \
+    tui=$(dialog --backtitle "${Project_Name}" \
     --radiolist "Choose your Grub theme background color variant : " 15 40 5 \
       1 "Dark" on \
       2 "Light" off --output-fd 1 )
@@ -349,7 +399,7 @@ run_dialog() {
         *) operation_canceled ;;
      esac
 
-    tui=$(dialog --backtitle ${Project_Name} \
+    tui=$(dialog --backtitle "${Project_Name}" \
     --radiolist "Choose your Grub theme logo variant : " 15 40 5 \
       1 "None" on \
       2 "Default" off \
@@ -361,7 +411,7 @@ run_dialog() {
         *) operation_canceled ;;
      esac
 
-    tui=$(dialog --backtitle ${Project_Name} \
+    tui=$(dialog --backtitle "${Project_Name}" \
     --radiolist "Choose your Display Resolution : " 15 40 5 \
       1 "1080p (1920x1080)" on \
       2 "2k (2560x1440)" off \
@@ -419,20 +469,23 @@ remove() {
   # Check for root access and proceed if it is present
   if [[ "$UID" -eq "$ROOT_UID" ]]; then
     prompt -i "Checking for the existence of themes directory..."
-    if [[ -d "${THEME_DIR}" ]]; then
-      prompt -i "\n Find installed theme: '${THEME_DIR}'..."
-      rm -rf "${THEME_DIR}"
-      prompt -w "\n Removed: '${THEME_DIR}'..."
-    elif [[ -d "/boot/grub/themes/${THEME_NAME}-${theme}-${type}-${side}-${color}" ]]; then
-      prompt -i "\n Find installed theme: '/boot/grub/themes/${THEME_NAME}-${theme}-${type}-${side}-${color}'..."
-      rm -rf "/boot/grub/themes/${THEME_NAME}-${theme}-${type}-${side}-${color}"
-      prompt -w "\n Removed: '/boot/grub/themes/${THEME_NAME}-${theme}-${type}-${side}-${color}'..."
-    elif [[ -d "/boot/grub2/themes/${THEME_NAME}-${theme}-${type}-${side}-${color}" ]]; then
-      prompt -i "\n Find installed theme: '/boot/grub2/themes/${THEME_NAME}-${theme}-${type}-${side}-${color}'..."
-      rm -rf "/boot/grub2/themes/${THEME_NAME}-${theme}-${type}-${side}-${color}"
-      prompt -w "\n Removed: '/boot/grub2/themes/${THEME_NAME}-${theme}-${type}-${side}-${color}'..."
-    else
-      prompt -e "\n Specified ${THEME_NAME}-${theme}-${type}-${side}-${color} theme does not exist!"
+    # Check the current 'Raven-Hub-*' name and the legacy 'Elegant-*' name used by
+    # earlier releases of this project, in all three theme locations.
+    local dir_name theme_subdir removed_any='false'
+    for dir_name in "${GRUB_DIR}" /boot/grub/themes /boot/grub2/themes; do
+      for theme_subdir in "${THEME_NAME}-${theme}-${type}-${side}-${color}" "${LEGACY_THEME_NAME}-${theme}-${type}-${side}-${color}"; do
+        if [[ -d "${dir_name}/${theme_subdir}" ]]; then
+          prompt -i "\n Found installed theme: '${dir_name}/${theme_subdir}'..."
+          rm -rf "${dir_name:?}/${theme_subdir}"
+          prompt -w "\n Removed: '${dir_name}/${theme_subdir}'..."
+          removed_any='true'
+        fi
+      done
+    done
+
+    if [[ "${removed_any}" != 'true' ]]; then
+      # Nothing was removed in any location for either naming scheme.
+      prompt -e "\n Specified ${THEME_NAME}-${theme}-${type}-${side}-${color} (or legacy ${LEGACY_THEME_NAME}-${theme}-${type}-${side}-${color}) theme does not exist!"
       exit 0
     fi
 
@@ -451,15 +504,14 @@ remove() {
 
     local current_theme="" # Declaration and assignment should be done seperately ==> https://github.com/koalaman/shellcheck/wiki/SC2155
 
-    current_theme="$(grep 'GRUB_THEME=' $grub_config_location | grep -v \#)"
+    current_theme="$(grep 'GRUB_THEME=' "$grub_config_location" | grep -v \#)"
 
     if [[ -n "$current_theme" ]]; then
-      # Backup with --in-place option to grub.bak within the same directory; then remove the current theme.
-      sed --in-place='.bak' "s|$current_theme|#GRUB_THEME=|" "$grub_config_location"
-
-      if [[ -f "$grub_config_location".back ]]; then
-        rm -rf "$grub_config_location".back
-      fi
+      # Keep an untouched backup next to the config, then deactivate the theme line.
+      # The pattern is fixed (no user-controlled content interpolated into the sed
+      # expression), so unusual characters in paths can never break it.
+      cp -an "$grub_config_location" "$grub_config_location".raven-hub.bak
+      sed --in-place "s|^\([[:space:]]*\)GRUB_THEME=|\1#GRUB_THEME=|" "$grub_config_location"
 
       # Update grub config
       prompt -i "\n Resetting grub theme...\n"
@@ -471,17 +523,22 @@ remove() {
     fi
   else
     #Check if password is cached (if cache timestamp not expired yet)
+    if ! has_command sudo; then
+      prompt -e "\n [ Error! ] -> This script needs root privileges and 'sudo' was not found."
+      prompt -i "Re-run this script as root (e.g. 'sudo ./install.sh ...')."
+      exit 1
+    fi
     if sudo -n true 2> /dev/null && echo; then
       #No need to ask for password
-      sudo "$0" -t ${theme} -p ${type} -i ${side} -c ${color} "${PROG_ARGS[@]}"
+      sudo "$0" "${PROG_ARGS[@]}"
     else
       #Ask for password
       prompt -e "\n [ Error! ] -> Run me as root! "
-      read -r -p " [ Trusted ] Specify the root password : " -t ${MAX_DELAY} -s #when using "read" command, "-r" option must be supplied ==> https://github.com/koalaman/shellcheck/wiki/SC2162
+      read -r -p " [ Trusted ] Specify the root password : " -t ${MAX_DELAY} -s || true #when using "read" command, "-r" option must be supplied ==> https://github.com/koalaman/shellcheck/wiki/SC2162
 
-      if sudo -S echo <<< $REPLY 2> /dev/null && echo; then
+      if sudo -S echo <<< "$REPLY" 2> /dev/null && echo; then
         #Correct password, use with sudo's stdin
-        sudo -S "$0" -t ${theme} -p ${type} -i ${side} -c ${color} "${PROG_ARGS[@]}" <<< $REPLY
+        sudo -S "$0" "${PROG_ARGS[@]}" <<< "$REPLY"
       else
         #block for 3 seconds before allowing another attempt
         sleep 3
@@ -508,28 +565,28 @@ install_program() {
 }
 
 install_dialog() {
-  if [ ! "$(which dialog 2> /dev/null)" ]; then
+  if ! has_command dialog; then
     prompt -w "\n 'dialog' need to be installed for this shell"
     install_program "dialog"
   fi
 }
 
 dialog_installer() {
-  if [[ ! -x /usr/bin/dialog ]];  then
+  if ! has_command dialog;  then
     if [[ "$UID" -ne "$ROOT_UID" ]];  then
       #Check if password is cached (if cache timestamp not expired yet)
 
-      if sudo -n true 2> /dev/null && echo; then
+      if has_command sudo && sudo -n true 2> /dev/null && echo; then
         #No need to ask for password
-        exec sudo $0
+        exec sudo "$0"
       else
         #Ask for password
         prompt -e "\n [ Error! ] -> Run me as root! "
-        read -r -p " [ Trusted ] Specify the root password : " -t ${MAX_DELAY} -s
+        read -r -p " [ Trusted ] Specify the root password : " -t ${MAX_DELAY} -s || true
 
-        if sudo -S echo <<< $REPLY 2> /dev/null && echo; then
+        if has_command sudo && sudo -S echo <<< "$REPLY" 2> /dev/null && echo; then
           #Correct password, use with sudo's stdin
-          sudo $0 <<< $REPLY
+          sudo "$0" <<< "$REPLY"
         else
           #block for 3 seconds before allowing another attempt
           sleep 3

@@ -3,7 +3,8 @@
 # Exit Immediately if a command fails
 set -o errexit
 
-readonly REPO_DIR="$(dirname "$(readlink -m "${0}")")"
+REPO_DIR="$(dirname "$(readlink -m "${0}")")"
+readonly REPO_DIR
 source "${REPO_DIR}/core.sh"
 
 usage() {
@@ -11,7 +12,10 @@ cat << EOF
 
 Usage: $0 [OPTION]...
 
+Raven Hub — GRUB2 theme generator (writes theme directories, installs nothing)
+
 OPTIONS:
+  -d, --dest      Destination directory       (default: the repository itself)
   -t, --theme     Background theme variant(s) [forest|mojave|mountain|wave] (default is forest)
   -p, --type      Theme style variant(s)      [window|float|sharp|blur] (default is window)
   -i, --side      Picture display side        [left|right] (default is left)
@@ -20,6 +24,9 @@ OPTIONS:
   -l, --logo      Show a logo on picture      [default|system] (default: a mountain logo)
 
   -h, --help      Show this help
+
+Example:
+  $0 -d "/tmp/Raven Hub themes" -t mountain -p float -c dark -s 1080p
 
 EOF
 }
@@ -32,20 +39,25 @@ generate() {
   local color="${5}"
   local screen="${6}"
 
-  local THEME_DIR="${1}/${THEME_NAME}-${2}-${3}-${4}-${5}"
+  local THEME_DIR="${dest}/${THEME_NAME}-${theme}-${type}-${side}-${color}"
 
   copy_files
 
-  prompt -s "\n Finished ..."
+  prompt -s "\n Finished: ${THEME_DIR}"
 }
 
 while [[ $# -gt 0 ]]; do
   case "${1}" in
     -d|--dest)
       dest="${2}"
+      if [[ $# -lt 2 || -z "${dest}" ]]; then
+        prompt -e "ERROR: --dest requires a directory path."
+        prompt -i "Try '$0 --help' for more information."
+        exit 1
+      fi
       if [[ ! -d "${dest}" ]]; then
         echo -e "\nDestination directory does not exist. Let's make a new one..."
-        mkdir -p ${dest}
+        mkdir -p "${dest}" || { prompt -e "ERROR: cannot create '${dest}'."; exit 1; }
       fi
       shift 2
       ;;
@@ -193,7 +205,11 @@ while [[ $# -gt 0 ]]; do
             shift
             ;;
           system)
-            logoicon="$(lsb_release -i | cut -d ' ' -f 2 | cut -d '	' -f 2)"
+            logoicon="$(detect_system_logo)"
+            if [[ -z "${logoicon}" ]]; then
+              prompt -w "Could not detect the running distribution; using the default mountain logo."
+              logoicon="Default"
+            fi
             shift
             ;;
           -*)
