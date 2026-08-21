@@ -22,14 +22,23 @@ Two ways to use it:
 
 ## Ventoy USB — quick start
 
+Build the copy-ready release folder with installers for Windows and Linux:
+
 ```sh
-./build-ventoy.sh                 # Standard package -> dist/ventoy
-./build-ventoy.sh -p lite         # ~10x smaller     -> dist/ventoy
+./make-ventoy-release.sh        # -> release/Raven-Hub-Ventoy (+ -Lite, + .zip)
 ```
 
-Then copy `ventoy.json` and `theme/` into the `ventoy` folder of the USB data
-partition. Full instructions, merge guide for existing `ventoy.json`,
-recovery and rollback: **[VENTOY.md](VENTOY.md)**.
+* **Windows:** double-click `release/Raven-Hub-Ventoy/install-ventoy.cmd`,
+  pick the USB drive, confirm. No admin rights needed.
+* **Linux:** `release/Raven-Hub-Ventoy/install-ventoy.sh --target /media/$USER/Ventoy`
+* **Manual:** copy the release's `ventoy` folder to the USB data partition
+  root and copy `ventoy/ventoy.json.example` to `ventoy/ventoy.json`.
+
+The installers back up an existing `ventoy.json` (timestamped) and merge only
+the `"theme"` object — all other Ventoy plugins are preserved. Uninstallers
+and recovery guides are included. Full documentation for power users:
+**[VENTOY.md](VENTOY.md)**; acceptance tests for the simple flow:
+**[docs/ACCEPTANCE-REPORT.md](docs/ACCEPTANCE-REPORT.md)**.
 
 ## Install on a running Linux system
 

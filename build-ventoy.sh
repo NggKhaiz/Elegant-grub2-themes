@@ -42,7 +42,9 @@ PRODUCT_NAME="Raven Hub"
 THEME_SLUG="raven-hub"
 STYLE="float"
 SIDE="left"
-GFXMODE="max"          # Ventoy-documented value: best available mode at boot
+GFXMODE="1024x768"     # conservative default: Ventoy's own default mode, supported by
+                       # virtually all firmware incl. old VESA; "max" stays available
+                       # as a clearly-labelled advanced option (see VENTOY.md)
 
 THEMES="forest mojave mountain wave"
 COLORS="dark light"
@@ -75,6 +77,9 @@ OPTIONS:
                        (default: mountain)
   -c, --color NAME     dark|light (default: dark)
   -s, --screen NAME    Asset resolution: 1080p|2k|4k (default: 1080p)
+      --gfxmode VALUE  Ventoy gfxmode written into ventoy.json
+                       (default: 1024x768 — safest; 'max' or '1920x1080' are
+                       clearly-labelled advanced choices, see VENTOY.md)
       --multires       Build per-resolution theme variants (1920x1080,
                        2560x1440, 3840x2160) plus a resolution-neutral fallback
                        and switch ventoy.json to Ventoy's resolution_fit mode.
@@ -116,6 +121,7 @@ while [[ $# -gt 0 ]]; do
     -t|--theme)   theme="${2:-}"; shift 2 ;;
     -c|--color)   color="${2:-}"; shift 2 ;;
     -s|--screen)  screen="${2:-}"; shift 2 ;;
+    --gfxmode)    GFXMODE="${2:-}"; [[ -n "${GFXMODE}" ]] || die 1 "--gfxmode needs a value (e.g. 1024x768, 1920x1080, max)"; shift 2 ;;
     --multires)   multires="true"; shift ;;
     -n|--dry-run) dry_run="true"; shift ;;
     -h|--help)    usage; exit 0 ;;
@@ -340,9 +346,9 @@ emit_theme_json_config() {  # shared by ventoy.json and ventoy.json.example
         ${array_keys}
         "gfxmode": "${GFXMODE}",
         "display_mode": "GUI",
-        "ventoy_left": "2%",
-        "ventoy_top": "96%",
-        "ventoy_color": "#f0f0f0",
+        "ventoy_left": "5%",
+        "ventoy_top": "95%",
+        "ventoy_color": "#8B8B8B",
         "fonts": [${fonts}
         ]
     }
@@ -354,25 +360,11 @@ JSON
 }
 
 emit_ventoy_json_example() {
-  # The optional menu_class section only makes sense when icons are shipped
-  # (Standard profile); the Lite profile has no icons directory.
-  if [[ "${profile}" != "standard" ]]; then
-    emit_theme_json_config
-    return
-  fi
-  # Drop the outer closing brace, then append sibling sections after "theme".
-  emit_theme_json_config | sed '\#^}$#d' | sed '\#^    }$#s/$/,/'
-  cat << JSON
-
-    "menu_class": [
-        { "key": "ubuntu",    "class": "ubuntu" },
-        { "key": "Windows",   "class": "windows" },
-        { "key": "archlinux", "class": "arch" },
-        { "key": "debian",    "class": "debian" },
-        { "dir": "/ISO/Linux", "class": "linux" }
-    ]
-}
-JSON
+  # Beginner default = minimal, theme-only configuration. Advanced examples
+  # (menu_class, per-architecture themes, gfxmode alternatives, CLI fallback)
+  # are documented in VENTOY.md / README-WINDOWS.md / README-LINUX.md instead
+  # of being shipped inside the default JSON.
+  emit_theme_json_config
 }
 
 install_theme_dir() {  # install_theme_dir <screen> <stage-dir>
@@ -448,7 +440,7 @@ composite_background() {  # composite_background <screen> -> stdout (jpeg)
 validate_package() {  # validate_package <package-root>
   local root="$1"
   local failed="false"
-  local dir tdir ref glob cls
+  local dir tdir ref glob
 
   info "validating theme asset references..."
   while IFS= read -r dir; do
@@ -498,12 +490,6 @@ validate_package() {  # validate_package <package-root>
     local rel="${ref#/ventoy/}"
     [[ -e "${root}/${rel}" ]] || { echo "  MISSING in package: ${ref}" >&2; failed="true"; }
   done < <(cat "${root}/ventoy.json" "${root}/ventoy.json.example" | grep -o '"/ventoy/[^"]*"' | tr -d '"' | sort -u)
-
-  info "validating menu_class example icons..."
-  while IFS= read -r cls; do
-    [[ -n "${cls}" ]] || continue
-    [[ -f "${root}/theme/$(primary_theme_dir)/icons/${cls}.png" ]] || { echo "  MISSING icon for example class '${cls}'" >&2; failed="true"; }
-  done < <(sed -n 's/.*"class":[[:space:]]*"\([^"]*\)".*/\1/p' "${root}/ventoy.json.example" | sort -u)
 
   if [[ "${have_python3}" == "true" ]]; then
     info "validating PF2 font names referenced by theme.txt..."

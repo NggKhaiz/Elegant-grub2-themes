@@ -67,23 +67,29 @@ theme/raven-hub/
 
 ## 2. Install onto the USB
 
+**The simple way (recommended):** build the release folder and run its
+installer — it copies the theme, backs up an existing `ventoy.json` with a
+timestamp, merges only the `"theme"` object, validates the result, and prints
+the rollback command:
+
+```sh
+./make-ventoy-release.sh                 # -> release/Raven-Hub-Ventoy(+ -Lite)
+# Windows: double-click release/Raven-Hub-Ventoy/install-ventoy.cmd
+# Linux:   release/Raven-Hub-Ventoy/install-ventoy.sh --target /media/$USER/Ventoy
+```
+
+**Manually:**
+
 1. Plug in your Ventoy USB and open the **data partition** (the big one with
    your ISOs). It usually contains a `ventoy` folder (create it if missing —
    Ventoy looks for `/ventoy/ventoy.json` at the partition root).
 2. **Fresh USB — no `ventoy/ventoy.json` yet:**
-   copy `ventoy.json` and the whole `theme/` directory into that `ventoy`
-   folder. You end up with:
-   ```
-   /ventoy/ventoy.json
-   /ventoy/theme/raven-hub/theme.txt
-   /ventoy/theme/raven-hub/backgrounds/background.jpg
-   ...
-   ```
-   Done. Reboot and boot the USB.
+   copy the release's `ventoy` folder to the partition root, then copy
+   `ventoy/ventoy.json.example` to `ventoy/ventoy.json`. Done.
 3. **You already have a `ventoy/ventoy.json`:** do **not** overwrite it —
    merge it (next section).
 
-You can also build directly onto the USB:
+**Power users** can build straight onto the USB with the repo tooling:
 
 ```sh
 ./build-ventoy.sh -p lite -o "/media/$USER/VENTOY/ventoy"
@@ -140,10 +146,10 @@ its value. Keep everything else untouched. Do not create two `"theme"` keys.
 | Key | Value | Why |
 | --- | --- | --- |
 | `file` | `/ventoy/theme/raven-hub/theme.txt` | the theme, at its package path |
-| `gfxmode` | `max` | Ventoy-native: use the best mode the firmware offers; works from 1024×768 to 4K without hard-coding a mode some firmware cannot set |
-| `display_mode` | `GUI` | graphical menu (default); CLI fallback is one keypress away (F7) |
-| `ventoy_left/top/color` | `2%`, `96%`, `#f0f0f0` | Ventoy's version line: bottom-left, light grey on the dark art (default blue would be unreadable) |
-| `fonts` | `…/fonts/*.pf2` | Ventoy `loadfont`s these before applying the theme; the names inside `theme.txt` resolve to them |
+| `gfxmode` | `1024x768` | safe beginner default — Ventoy's own default mode, settable by virtually all firmware incl. old VESA; the layout stays usable from 1024×768 up (percent geometry). Sharper `1920x1080`/`max` are documented advanced choices |
+| `display_mode` | `GUI` | graphical menu; CLI fallback is one keypress away (F7) |
+| `ventoy_left/top/color` | `5%`, `95%`, `#8B8B8B` | Ventoy's version line: bottom-left, neutral grey that reads on both dark and light art |
+| `fonts` | `…/fonts/*.pf2` | Ventoy `loadfont`s these before applying the theme (officially documented); without them the menu falls back to a plainer font |
 
 ---
 
@@ -176,7 +182,7 @@ everywhere Ventoy itself does.
 {
     "theme": {
         "file": "/ventoy/theme/raven-hub/theme.txt",
-        "gfxmode": "max",
+        "gfxmode": "1024x768",
         "fonts": [
             "/ventoy/theme/raven-hub/fonts/unifont-16.pf2",
             "/ventoy/theme/raven-hub/fonts/terminus-14.pf2"
@@ -192,15 +198,16 @@ everywhere Ventoy itself does.
 
 ## 5. Resolution strategy
 
-* Default `gfxmode: "max"` + percent-based layout: safe from 1024×768 to
-  3840×2160. The background is scaled by GRUB to the active mode; on non-16:9
-  panels it is slightly stretched.
-* Fonts/icons are pixel-sized for the chosen asset set (1080p by default). On
-  a 1440p/4K panel they appear smaller than on a 1080p panel — perfectly
-  readable, just more compact. If you want pixel-perfect sizing:
-  ```sh
-  ./build-ventoy.sh -s 2k      # or -s 4k — bigger fonts/icons, same layout
-  ```
+* **Default (beginner-safe): `gfxmode: "1024x768"`** — the mode Ventoy itself
+  defaults to; every firmware from old VESA BIOS to modern UEFI can set it.
+  The layout is percent-based and was verified usable at 1024×768 (≈43 menu
+  characters, 10 rows) through 3840×2160; the 16:9 background is stretched
+  slightly on 4:3 modes.
+* **Advanced (clearly labelled, not default): `"gfxmode": "1920x1080"` or
+  `"max"`** for sharper rendering on modern panels — if a machine renders it
+  badly, `F7`/`F5 → Resolution Configuration` recovers at runtime.
+* Fonts/icons are pixel-sized for the chosen asset set (1080p by default);
+  `./build-ventoy.sh -s 2k` (or `-s 4k`) produces bigger fonts/icons.
 * **`--multires`** builds three per-resolution themes (`raven-hub-1920x1080`,
   `2560x1440`, `3840x2160`) and switches `ventoy.json` to Ventoy's
   `resolution_fit` mode (requires Ventoy ≥ 1.0.86). Caveats, honestly:
@@ -212,11 +219,8 @@ everywhere Ventoy itself does.
   * `resolution_fit` has had reported quirks in some Ventoy versions
     (1.0.95-era forum reports); the single-theme default avoids the feature
     entirely.
-* Fixed mode instead of `max`: replace `"gfxmode": "max"` with e.g.
-  `"1920x1080"`. You can also change it at runtime with
-  `F5 → Resolution Configuration`.
-
----
+* You can also change the mode at runtime with `F5 → Resolution
+  Configuration`, or rebuild with `--gfxmode`.
 
 ## 6. Long ISO filenames and readability
 
