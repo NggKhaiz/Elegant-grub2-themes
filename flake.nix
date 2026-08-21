@@ -1,28 +1,24 @@
 {
-  description = "Flake to manage elegant grub2 themes from vinceliuice";
+  description = "Raven Hub — Elegant GRUB2 themes (fork of vinceliuice/elegant-grub2-themes)";
 
   inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
-    elegant-grub2-theme-src = {
-      url = "github:vinceliuice/Elegant-grub2-themes";
-      flake = false;
-    };
   };
 
-  outputs = { self, nixpkgs, elegant-grub2-theme-src }:
+  outputs = { self, nixpkgs }:
     let
       supportedSystems = [ "x86_64-linux" "aarch64-linux" ];
       forAllSystems = nixpkgs.lib.genAttrs supportedSystems;
     in
     {
-      packages = forAllSystems (system: 
-        let 
+      packages = forAllSystems (system:
+        let
           pkgs = nixpkgs.legacyPackages.${system};
         in {
           default = pkgs.stdenv.mkDerivation {
-            name = "elegant-grub2-theme-source";
-            src = elegant-grub2-theme-src;
-            
+            name = "raven-hub-grub2-theme-source";
+            src = self;
+
             installPhase = ''
               mkdir -p $out
               cp -r ./* $out/
@@ -33,23 +29,23 @@
 
       nixosModules.default = { config, lib, pkgs, ... }:
         let
-          cfg = config.boot.loader.elegant-grub2-theme;
-          
+          cfg = config.boot.loader.raven-hub-theme;
+
           resolutions = {
             "1080p" = "1920x1080";
             "2k" = "2560x1440";
             "4k" = "3840x2160";
           };
-          
-          themeName = "Elegant-${cfg.theme}-${cfg.type}-${cfg.side}-${cfg.color}";
-          
-          elegant-grub2-theme = pkgs.stdenv.mkDerivation {
-            name = "elegant-grub2-theme";
-            src = elegant-grub2-theme-src;
+
+          themeName = "Raven-Hub-${cfg.theme}-${cfg.type}-${cfg.side}-${cfg.color}";
+
+          raven-hub-theme = pkgs.stdenv.mkDerivation {
+            name = "raven-hub-grub2-theme";
+            src = self;
             buildInputs = [ pkgs.imagemagick ];
             installPhase = ''
               mkdir -p $out/grub/themes
-              
+
               # Generate theme
               bash ./generate.sh \
                 -d "$out/grub/themes" \
@@ -59,10 +55,10 @@
                 -c ${cfg.color} \
                 -s ${cfg.screen} \
                 -l ${cfg.logo}
-              
+
               ${lib.optionalString (cfg.splashImage != null) ''
                 # Find the generated theme directory and replace background
-                theme_dir=$(find $out/grub/themes -maxdepth 1 -type d -name "Elegant-*" | head -n 1)
+                theme_dir=$(find $out/grub/themes -maxdepth 1 -type d -name "Raven-Hub-*" | head -n 1)
                 if [ -n "$theme_dir" ] && [ -f "$theme_dir/background.jpg" ]; then
                   rm -f "$theme_dir/background.jpg"
                   ${pkgs.imagemagick}/bin/convert ${cfg.splashImage} "$theme_dir/background.jpg"
@@ -70,17 +66,24 @@
               ''}
             '';
           };
-          
+
           resolution = resolutions."${cfg.screen}";
         in
         {
-          options.boot.loader.elegant-grub2-theme = {
+          # Backward compatibility: the option used to be boot.loader.elegant-grub2-theme
+          imports = [
+            (lib.mkRenamedOptionModule
+              [ "boot" "loader" "elegant-grub2-theme" ]
+              [ "boot" "loader" "raven-hub-theme" ])
+          ];
+
+          options.boot.loader.raven-hub-theme = {
             enable = lib.mkOption {
               default = false;
               example = true;
               type = lib.types.bool;
               description = ''
-                Enable elegant grub2 theming
+                Enable Raven Hub (Elegant lineage) grub2 theming
               '';
             };
             theme = lib.mkOption {
@@ -143,8 +146,8 @@
 
           config = lib.mkIf cfg.enable {
             boot.loader.grub = {
-              theme = "${elegant-grub2-theme}/grub/themes/${themeName}";
-              splashImage = "${elegant-grub2-theme}/grub/themes/${themeName}/background.jpg";
+              theme = "${raven-hub-theme}/grub/themes/${themeName}";
+              splashImage = "${raven-hub-theme}/grub/themes/${themeName}/background.jpg";
               gfxmodeEfi = "${resolution},auto";
               gfxmodeBios = "${resolution},auto";
               extraConfig = ''
